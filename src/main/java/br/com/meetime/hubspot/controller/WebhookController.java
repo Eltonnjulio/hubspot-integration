@@ -37,12 +37,7 @@ public class WebhookController {
                     String method = exchange.getRequest().getMethod().name();
                     String uri = exchange.getRequest().getURI().getPath();
 
-                    log.info("Recebido evento de webhook do HubSpot");
-                    log.debug("URI: {}", uri);
-                    log.debug("Método: {}", method);
-                    log.debug("Corpo: {}", body);
-                    log.debug("Timestamp: {}", timestamp);
-                    log.debug("Assinatura (v3): {}", signature);
+                    log.info("RECEIVED HUBSPOT WEBHOOK EVENT");
 
                     signatureVerifier.validateSignatureV3(signature, method, uri, String.valueOf(body), timestamp);
                     webhookService.processWebhookEvents(String.valueOf(body));

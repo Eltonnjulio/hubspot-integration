@@ -1,5 +1,4 @@
-package br.com.meetime.hubspot.security.impl
-        ;
+package br.com.meetime.hubspot.security.impl;
 
 import br.com.meetime.hubspot.security.WebhookSignatureVerifier;
 import org.springframework.beans.factory.annotation.Value;
@@ -15,22 +14,26 @@ public class WebhookSignatureVerifierImpl implements WebhookSignatureVerifier {
     @Value("${webhook.client-secret")
     private String clientSecret;
 
-    private static final long MAX_ALLOWED_TIMESTAMP = 300_000; // 5 minutos em milissegundos
+    // MAXIMUM TIME DIFFERENCE ALLOWED (5 MINUTES)
+    private static final long MAX_ALLOWED_TIMESTAMP = 300_000;
 
     @Override
     public void validateSignatureV3(String signature, String method, String uri, String body, String timestamp) {
         long requestTimestamp = Long.parseLong(timestamp);
         long currentTime = System.currentTimeMillis();
 
+        // CHECK FOR TIMESTAMP VALIDITY TO PREVENT REPLAY ATTACKS
         if (Math.abs(currentTime - requestTimestamp) > MAX_ALLOWED_TIMESTAMP) {
-            throw new SecurityException("Timestamp inválido: possível replay attack.");
+            throw new SecurityException("INVALID TIMESTAMP: POSSIBLE REPLAY ATTACK.");
         }
 
+        // CREATE RAW STRING TO COMPUTE SIGNATURE
         String rawString = method + uri + body + timestamp;
         String computedSignature = computeHmac(rawString);
 
+        // COMPARE SIGNATURES USING CONSTANT TIME COMPARISON
         if (!constantTimeEquals(computedSignature, signature)) {
-            throw new SecurityException("Assinatura inválida: a requisição pode não ser do HubSpot.");
+            throw new SecurityException("INVALID SIGNATURE: REQUEST MAY NOT BE FROM HUBSPOT.");
         }
     }
 
@@ -42,10 +45,11 @@ public class WebhookSignatureVerifierImpl implements WebhookSignatureVerifier {
             byte[] hmacBytes = mac.doFinal(data.getBytes(StandardCharsets.UTF_8));
             return Base64.getEncoder().encodeToString(hmacBytes);
         } catch (Exception e) {
-            throw new RuntimeException("Erro ao computar HMAC: " + e.getMessage(), e);
+            throw new RuntimeException("ERROR COMPUTING HMAC: " + e.getMessage(), e);
         }
     }
 
+    // CONSTANT TIME COMPARISON TO AVOID TIMING ATTACKS
     private boolean constantTimeEquals(String a, String b) {
         if (a.length() != b.length()) return false;
         int result = 0;
