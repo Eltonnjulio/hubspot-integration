@@ -1,0 +1,43 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: hubspot-integration
+  profiles:
+    active: dev
+
+logging:
+  level:
+    root: INFO
+    br.com.meetime.hubspot: DEBUG
+    org.springframework.web.client.RestTemplate: DEBUG
+    org.apache.http: WARN
+
+hubspot:
+  api:
+    base-url: https://api.hubapi.com
+
+  oauth:
+    client-id: 102084ab-3957-49ad-bd93-0ecf90659125
+    client-secret: 6761be26-f65c-448d-96b8-d115a1596d1b
+    redirect-uri: http://localhost:8080/oauth/callback
+    authorization-uri: https://app.hubspot.com/oauth/authorize
+    token-uri: /oauth/v1/token
+    scopes: "crm.objects.contacts.write crm.objects.contacts.read oauth"
+
+  webhook:
+    client-secret: ${hubspot.oauth.client-secret}
+
+resilience4j:
+  ratelimiter:
+    instances:
+      hubspotApi:
+        limitForPeriod: 9
+        limitRefreshPeriod: 1s
+        timeoutDuration: 2s
+
+http:
+  client:
+    connect-timeout: 5000
+    read-timeout: 5000

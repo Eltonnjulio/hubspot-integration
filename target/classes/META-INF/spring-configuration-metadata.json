@@ -1,0 +1,75 @@
+{
+  "groups": [
+    {
+      "name": "hubspot",
+      "type": "br.com.meetime.hubspot.config.HubSpotConfig",
+      "sourceType": "br.com.meetime.hubspot.config.HubSpotConfig"
+    },
+    {
+      "name": "hubspot.api",
+      "type": "br.com.meetime.hubspot.config.HubSpotConfig$Api",
+      "sourceType": "br.com.meetime.hubspot.config.HubSpotConfig",
+      "sourceMethod": "getApi()"
+    },
+    {
+      "name": "hubspot.oauth",
+      "type": "br.com.meetime.hubspot.config.HubSpotConfig$OAuthConfig",
+      "sourceType": "br.com.meetime.hubspot.config.HubSpotConfig",
+      "sourceMethod": "getOauth()"
+    },
+    {
+      "name": "hubspot.webhook",
+      "type": "br.com.meetime.hubspot.config.HubSpotConfig$WebhookConfig",
+      "sourceType": "br.com.meetime.hubspot.config.HubSpotConfig",
+      "sourceMethod": "getWebhook()"
+    }
+  ],
+  "properties": [
+    {
+      "name": "hubspot.api.base-url",
+      "type": "java.lang.String",
+      "sourceType": "br.com.meetime.hubspot.config.HubSpotConfig$Api"
+    },
+    {
+      "name": "hubspot.oauth.authorization-uri",
+      "type": "java.lang.String",
+      "sourceType": "br.com.meetime.hubspot.config.HubSpotConfig$OAuthConfig"
+    },
+    {
+      "name": "hubspot.oauth.client-id",
+      "type": "java.lang.String",
+      "sourceType": "br.com.meetime.hubspot.config.HubSpotConfig$OAuthConfig"
+    },
+    {
+      "name": "hubspot.oauth.client-secret",
+      "type": "java.lang.String",
+      "sourceType": "br.com.meetime.hubspot.config.HubSpotConfig$OAuthConfig"
+    },
+    {
+      "name": "hubspot.oauth.redirect-uri",
+      "type": "java.lang.String",
+      "sourceType": "br.com.meetime.hubspot.config.HubSpotConfig$OAuthConfig"
+    },
+    {
+      "name": "hubspot.oauth.scope-set",
+      "type": "java.util.Set<java.lang.String>",
+      "sourceType": "br.com.meetime.hubspot.config.HubSpotConfig$OAuthConfig"
+    },
+    {
+      "name": "hubspot.oauth.scopes",
+      "type": "java.lang.String",
+      "sourceType": "br.com.meetime.hubspot.config.HubSpotConfig$OAuthConfig"
+    },
+    {
+      "name": "hubspot.oauth.token-uri",
+      "type": "java.lang.String",
+      "sourceType": "br.com.meetime.hubspot.config.HubSpotConfig$OAuthConfig"
+    },
+    {
+      "name": "hubspot.webhook.client-secret",
+      "type": "java.lang.String",
+      "sourceType": "br.com.meetime.hubspot.config.HubSpotConfig$WebhookConfig"
+    }
+  ],
+  "hints": []
+}
