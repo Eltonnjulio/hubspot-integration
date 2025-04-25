@@ -125,23 +125,25 @@ A aplicação implementa os seguintes fluxos:
     *   **Headers (Esperados do HubSpot):**
         *   `X-HubSpot-Signature-V3: <assinatura>`
         *   `Content-Type: application/json`
-    *   **Corpo da Requisição (Exemplo vindo do HubSpot):**
-        ```json
-        [
-          {
-            "eventId": 1,
-            "subscriptionId": 12345,
-            "portalId": 98765,
-            "appId": 112233,
-            "occurredAt": 1678886400000,
-            "subscriptionType": "contact.creation",
-            "attemptNumber": 0,
-            "objectId": 555111, // ID do contato criado
-            "changeSource": "CRM",
-            "changeFlag": "CREATED"
-          }
-        ]
-        ```
+      *   **Corpo da Requisição (Exemplo vindo do HubSpot):**
+          ```json
+          [
+            {
+              "eventId": 4160277826,
+              "subscriptionId": 3545374,
+              "portalId": 146087035,
+              "appId": 11414215,
+              "occurredAt": 1745533643583,
+              "subscriptionType": "object.creation",
+              "attemptNumber": 2,
+              "objectId": 269392099525,
+              "objectTypeId": "0-1",
+              "changeFlag": "CREATED",
+              "changeSource": "INTEGRATION",
+              "sourceId": "11414215"
+            }
+          ]
+          ```
     *   **Resposta de Sucesso:** `200 OK` (Corpo vazio)
     *   **Resposta de Erro (Assinatura inválida):** `401 Unauthorized`
     *   **Descrição:** Endpoint que recebe notificações do HubSpot quando um contato é criado. Valida a assinatura `X-HubSpot-Signature-V3` antes de processar o evento. A lógica de processamento atual apenas loga o evento recebido.
