@@ -13,6 +13,11 @@ logging:
     br.com.meetime.hubspot: DEBUG
     org.springframework.web.client.RestTemplate: DEBUG
     org.apache.http: WARN
+    br.com.meetime.hubspot.controller: DEBUG
+      # ou TRACE para ver headers também
+      # br.com.meetime.hubspot.controller: TRACE
+      # Mantenha o nível do verifier em DEBUG ou WARN para ver os detalhes da falha lá também
+    br.com.meetime.hubspot.security.impl: DEBUG
 
 hubspot:
   api:

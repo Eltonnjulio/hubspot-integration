@@ -1,61 +1,88 @@
 package br.com.meetime.hubspot.security.impl;
 
+import br.com.meetime.hubspot.config.HubSpotConfig;
+import br.com.meetime.hubspot.exception.WebhookAuthenticationException;
 import br.com.meetime.hubspot.security.WebhookSignatureVerifier;
-import org.springframework.beans.factory.annotation.Value;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
+import java.security.InvalidKeyException;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
+import java.util.Objects;
 
 @Component
 public class WebhookSignatureVerifierImpl implements WebhookSignatureVerifier {
 
-    @Value("${webhook.client-secret")
-    private String clientSecret;
+    private static final Logger log = LoggerFactory.getLogger(WebhookSignatureVerifierImpl.class);
+    private static final String HMAC_ALGORITHM = "HmacSHA256";
 
-    // MAXIMUM TIME DIFFERENCE ALLOWED (5 MINUTES)
-    private static final long MAX_ALLOWED_TIMESTAMP = 300_000;
+    private final String clientSecret;
+
+    public WebhookSignatureVerifierImpl(HubSpotConfig hubSpotConfig) {
+        this.clientSecret = Objects.requireNonNull(
+                hubSpotConfig.getWebhook().getClientSecret(),
+                "HUBSPOT WEBHOOK CLIENT SECRET CANNOT BE NULL IN CONFIGURATION (HUBSPOTCONFIG)"
+        );
+        if (this.clientSecret.isBlank()) {
+            log.error("HUBSPOT WEBHOOK CLIENT SECRET IS BLANK IN CONFIGURATION!");
+            throw new IllegalArgumentException("HubSpot Webhook Client Secret cannot be blank");
+        }
+    }
 
     @Override
-    public void validateSignatureV3(String signature, String method, String uri, String body, String timestamp) {
-        long requestTimestamp = Long.parseLong(timestamp);
-        long currentTime = System.currentTimeMillis();
-
-        // CHECK FOR TIMESTAMP VALIDITY TO PREVENT REPLAY ATTACKS
-        if (Math.abs(currentTime - requestTimestamp) > MAX_ALLOWED_TIMESTAMP) {
-            throw new SecurityException("INVALID TIMESTAMP: POSSIBLE REPLAY ATTACK.");
+    public void validateSignatureV3(String receivedSignature, String requestBody) {
+        if (receivedSignature == null || receivedSignature.isBlank()) {
+            log.warn("WEBHOOK REQUEST RECEIVED WITHOUT V3 SIGNATURE (X-HUBSPOT-SIGNATURE-V3).");
+            throw new WebhookAuthenticationException("Webhook V3 signature is missing.");
+        }
+        if (requestBody == null) {
+            log.error("NULL REQUEST BODY RECEIVED FOR V3 SIGNATURE VALIDATION.");
+            throw new WebhookAuthenticationException("Request body cannot be null for V3 signature validation.");
         }
 
-        // CREATE RAW STRING TO COMPUTE SIGNATURE
-        String rawString = method + uri + body + timestamp;
-        String computedSignature = computeHmac(rawString);
+        String computedSignature = computeSignatureV3(requestBody);
 
-        // COMPARE SIGNATURES USING CONSTANT TIME COMPARISON
-        if (!constantTimeEquals(computedSignature, signature)) {
-            throw new SecurityException("INVALID SIGNATURE: REQUEST MAY NOT BE FROM HUBSPOT.");
+        if (!TimingSafeComparator.isEqual(computedSignature.getBytes(StandardCharsets.UTF_8),
+                receivedSignature.getBytes(StandardCharsets.UTF_8))) {
+            log.warn("INVALID WEBHOOK V3 SIGNATURE. EXPECTED (COMPUTED): [{}], RECEIVED: [{}]", computedSignature, receivedSignature);
+            throw new WebhookAuthenticationException("Invalid webhook V3 signature.");
         }
+
+        log.debug("WEBHOOK V3 SIGNATURE VALIDATED SUCCESSFULLY.");
     }
 
-    private String computeHmac(String data) {
+    private String computeSignatureV3(String requestBody) {
         try {
-            Mac mac = Mac.getInstance("HmacSHA256");
-            SecretKeySpec secretKey = new SecretKeySpec(clientSecret.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
-            mac.init(secretKey);
-            byte[] hmacBytes = mac.doFinal(data.getBytes(StandardCharsets.UTF_8));
-            return Base64.getEncoder().encodeToString(hmacBytes);
+            String sourceString = this.clientSecret + requestBody;
+
+            Mac hmac = Mac.getInstance(HMAC_ALGORITHM);
+            SecretKeySpec secretKeySpec = new SecretKeySpec(this.clientSecret.getBytes(StandardCharsets.UTF_8), HMAC_ALGORITHM);
+            hmac.init(secretKeySpec);
+            byte[] hash = hmac.doFinal(sourceString.getBytes(StandardCharsets.UTF_8));
+
+            return Base64.getEncoder().encodeToString(hash);
+
+        } catch (NoSuchAlgorithmException e) {
+            log.error("HMACSHA256 ALGORITHM NOT FOUND IN JVM.", e);
+            throw new WebhookAuthenticationException("INTERNAL FAILURE CALCULATING SIGNATURE (ALGORITHM UNAVAILABLE).", e);
+        } catch (InvalidKeyException e) {
+            log.error("INVALID KEY FOR HMAC CALCULATION (CLIENT SECRET: '{}'). CHECK CONFIGURATION.", "****", e); // Mask secret
+            throw new WebhookAuthenticationException("INTERNAL FAILURE CALCULATING SIGNATURE (INVALID KEY).", e);
         } catch (Exception e) {
-            throw new RuntimeException("ERROR COMPUTING HMAC: " + e.getMessage(), e);
+            log.error("UNEXPECTED ERROR DURING V3 SIGNATURE CALCULATION.", e);
+            throw new WebhookAuthenticationException("INTERNAL FAILURE CALCULATING SIGNATURE.", e);
         }
     }
 
-    // CONSTANT TIME COMPARISON TO AVOID TIMING ATTACKS
-    private boolean constantTimeEquals(String a, String b) {
-        if (a.length() != b.length()) return false;
-        int result = 0;
-        for (int i = 0; i < a.length(); i++) {
-            result |= a.charAt(i) ^ b.charAt(i);
+    private static class TimingSafeComparator {
+        public static boolean isEqual(byte[] a, byte[] b) {
+            return MessageDigest.isEqual(a, b);
         }
-        return result == 0;
     }
 }

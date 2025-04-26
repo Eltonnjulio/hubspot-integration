@@ -5,6 +5,7 @@ import br.com.meetime.hubspot.domain.response.ContactResponse;
 import br.com.meetime.hubspot.domain.dto.HubSpotErrorDTO;
 import br.com.meetime.hubspot.exception.HubSpotApiException;
 import br.com.meetime.hubspot.service.ContactService;
+import br.com.meetime.hubspot.service.HubSpotOAuthService;
 import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,10 +25,10 @@ public class ContactServiceImpl implements ContactService {
     private static final String CONTACTS_API_PATH = "/crm/v3/objects/contacts";
 
     private final WebClient hubSpotWebClient;
-    private final HubSpotOAuthServiceImpl hubSpotOAuthService;
+    private final HubSpotOAuthService hubSpotOAuthService;
 
     public ContactServiceImpl(@Qualifier("hubSpotWebClient") WebClient hubSpotWebClient,
-                              HubSpotOAuthServiceImpl hubSpotOAuthService) {
+                              HubSpotOAuthService hubSpotOAuthService) {
         this.hubSpotWebClient = hubSpotWebClient;
         this.hubSpotOAuthService = hubSpotOAuthService;
     }

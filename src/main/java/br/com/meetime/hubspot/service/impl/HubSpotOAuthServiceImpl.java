@@ -32,7 +32,7 @@ public class HubSpotOAuthServiceImpl implements HubSpotOAuthService {
 
     public HubSpotOAuthServiceImpl(@Qualifier("hubSpotOAuthWebClient") WebClient hubSpotOAuthWebClient,
                                    HubSpotConfig hubSpotConfig,
-                                   TokenStorageServiceImpl tokenStorageService) {
+                                   TokenStorageService tokenStorageService) {
         this.hubSpotOAuthWebClient = hubSpotOAuthWebClient;
         this.hubSpotConfig = hubSpotConfig;
         this.tokenStorageService = tokenStorageService;

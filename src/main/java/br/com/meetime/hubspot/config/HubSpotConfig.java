@@ -6,7 +6,6 @@ import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.validation.annotation.Validated;
-
 import jakarta.validation.constraints.NotBlank;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -64,15 +63,15 @@ public class HubSpotConfig {
         private String clientSecret;
     }
 
-    public String getFullTokenUri() {
 
-        if (oauth.getTokenUri().startsWith("/")) {
-            return api.baseUrl + oauth.tokenUri;
+    public String getFullTokenUri() {
+        if (getOauth().getTokenUri().startsWith("/")) {
+            return getApi().getBaseUrl() + getOauth().getTokenUri();
         }
-        return oauth.tokenUri;
+        return getOauth().getTokenUri();
     }
 
     public String getFullAuthorizationUri() {
-        return oauth.authorizationUri;
+        return getOauth().getAuthorizationUri();
     }
 }

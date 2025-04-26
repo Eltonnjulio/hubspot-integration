@@ -2,6 +2,7 @@ br/com/meetime/hubspot/exception/WebhookAuthenticationException.class
 br/com/meetime/hubspot/domain/response/HubSpotTokenResponse.class
 br/com/meetime/hubspot/controller/ContactController.class
 br/com/meetime/hubspot/config/HubSpotConfig.class
+br/com/meetime/hubspot/security/impl/WebhookSignatureVerifierImpl$MessageDigest.class
 br/com/meetime/hubspot/security/WebhookSignatureVerifier.class
 br/com/meetime/hubspot/domain/response/ErrorResponse.class
 br/com/meetime/hubspot/config/SecurityConfig.class
@@ -15,8 +16,8 @@ br/com/meetime/hubspot/config/HubSpotConfig$WebhookConfig.class
 br/com/meetime/hubspot/service/TokenStorageService.class
 br/com/meetime/hubspot/exception/GlobalExceptionHandler.class
 META-INF/spring-configuration-metadata.json
-br/com/meetime/hubspot/domain/response/ContactResponse.class
 br/com/meetime/hubspot/service/impl/ContactServiceImpl.class
+br/com/meetime/hubspot/domain/response/ContactResponse.class
 br/com/meetime/hubspot/config/WebClientConfig.class
 br/com/meetime/hubspot/exception/HubSpotApiException.class
 br/com/meetime/hubspot/security/impl/WebhookSignatureVerifierImpl.class
@@ -28,5 +29,5 @@ br/com/meetime/hubspot/config/HubSpotConfig$Api.class
 br/com/meetime/hubspot/domain/dto/HubSpotErrorDTO.class
 br/com/meetime/hubspot/domain/request/ContactCreateRequest.class
 br/com/meetime/hubspot/controller/WebhookController.class
-br/com/meetime/hubspot/domain/request/ContactPropertiesRequest.class
 br/com/meetime/hubspot/config/HubSpotConfig$OAuthConfig.class
+br/com/meetime/hubspot/domain/request/ContactPropertiesRequest.class

@@ -116,10 +116,44 @@
 
     <build>
         <plugins>
-            <!-- Build and repackage as executable jar -->
+            <!-- Adicione ou modifique este plugin -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <!-- A versão é herdada do spring-boot-starter-parent, mas pode ser especificada se necessário -->
+                <!-- <version>3.8.1</version> -->
+                <configuration>
+                    <!-- Configuração explícita do processador de anotações -->
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <!-- A versão é gerenciada pelo Spring Boot BOM -->
+                            <version>${lombok.version}</version>
+                        </path>
+                        <!-- IMPORTANTE: Adicione também o configuration-processor aqui se você o usa -->
+                        <path>
+                            <groupId>org.springframework.boot</groupId>
+                            <artifactId>spring-boot-configuration-processor</artifactId>
+                            <version>${project.parent.version}</version> <!-- Use a versão do parent -->
+                        </path>
+                    </annotationProcessorPaths>
+                    <!-- Garanta a versão Java correta -->
+                    <source>${java.version}</source>
+                    <target>${java.version}</target>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
+                </configuration>
                 <executions>
                     <execution>
                         <goals>
