@@ -45,7 +45,7 @@ public class WebhookController {
                     byte[] bytes = new byte[dataBuffer.readableByteCount()];
                     dataBuffer.read(bytes);
                     String body = new String(bytes, StandardCharsets.UTF_8);
-                    DataBufferUtils.release(dataBuffer); // Release buffer memory IMPORTANT!
+                    DataBufferUtils.release(dataBuffer);
 
                     LOG.debug("CAPTURED WEBHOOK BODY (UTF-8) FOR VALIDATION: [{}]", body);
 

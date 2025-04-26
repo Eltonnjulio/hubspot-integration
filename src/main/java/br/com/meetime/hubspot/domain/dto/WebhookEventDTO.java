@@ -9,19 +9,16 @@ import lombok.NoArgsConstructor;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class WebhookEventDTO {
 
+    private Long appId;
     private Long eventId;
     private Long subscriptionId;
     private Long portalId;
-    private Long appId;
     private Long occurredAt;
-
     private String subscriptionType;
     private Integer attemptNumber;
-
     private Long objectId;
-    private String objectTypeId;
-
-    private String changeFlag;
     private String changeSource;
+    private String objectTypeId;
+    private String changeFlag;
     private String sourceId;
 }
