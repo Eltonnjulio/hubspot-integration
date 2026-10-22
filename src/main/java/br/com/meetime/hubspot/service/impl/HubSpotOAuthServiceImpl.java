@@ -1,7 +1,7 @@
 package br.com.meetime.hubspot.service.impl;
 
 import br.com.meetime.hubspot.config.HubSpotConfig;
-import br.com.meetime.hubspot.domain.dto.HubSpotErrorDTO;
+import br.com.meetime.hubspot.client.HubSpotResponseErrors;
 import br.com.meetime.hubspot.domain.response.HubSpotTokenResponse;
 import br.com.meetime.hubspot.exception.HubSpotApiException;
 import br.com.meetime.hubspot.service.HubSpotOAuthService;
@@ -14,10 +14,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.reactive.function.BodyInserters;
-import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import java.util.Optional;
 
@@ -38,12 +38,14 @@ public class HubSpotOAuthServiceImpl implements HubSpotOAuthService {
         this.tokenStorageService = tokenStorageService;
     }
 
+    private Mono<HubSpotTokenResponse> refreshInFlight;
+
     public String getAuthorizationUrl() {
         String url = UriComponentsBuilder.fromHttpUrl(hubSpotConfig.getFullAuthorizationUri())
                 .queryParam("client_id", hubSpotConfig.getOauth().getClientId())
                 .queryParam("redirect_uri", hubSpotConfig.getOauth().getRedirectUri())
-                .queryParam("scope", hubSpotConfig.getOauth().getEncodedScopes())
-                .build()
+                .queryParam("scope", hubSpotConfig.getOauth().getScopes())
+                .build().encode()
                 .toUriString();
         log.debug("GENERATED HUBSPOT AUTHORIZATION URL: {}", url);
         return url;
@@ -62,13 +64,11 @@ public class HubSpotOAuthServiceImpl implements HubSpotOAuthService {
         return hubSpotOAuthWebClient.post()
                 .body(BodyInserters.fromFormData(formData))
                 .retrieve()
-                .onStatus(HttpStatusCode::isError, response ->
-                        response.bodyToMono(HubSpotErrorDTO.class)
-                                .flatMap(errorBody -> Mono.<Throwable>error(buildTokenError(response, errorBody)))
-                                .switchIfEmpty(Mono.<Throwable>error(buildTokenError(response)))
-                )
+                .onStatus(HttpStatusCode::isError, response -> HubSpotResponseErrors.from(response, "OAuth token request"))
 
                 .bodyToMono(HubSpotTokenResponse.class)
+                .switchIfEmpty(Mono.error(new HubSpotApiException("Empty OAuth response", HttpStatusCode.valueOf(502))))
+                .publishOn(Schedulers.boundedElastic())
                 .doOnSuccess(token -> {
                     log.info("ACCESS TOKEN RECEIVED SUCCESSFULLY.");
                     tokenStorageService.saveToken(token);
@@ -76,7 +76,20 @@ public class HubSpotOAuthServiceImpl implements HubSpotOAuthService {
                 .doOnError(error -> log.error("ERROR WHILE EXCHANGING CODE FOR TOKEN: {}", error.getMessage()));
     }
 
-    public Mono<HubSpotTokenResponse> refreshToken() {
+    public synchronized Mono<HubSpotTokenResponse> refreshToken() {
+        if (refreshInFlight == null) {
+            refreshInFlight = Mono.defer(this::requestTokenRefresh).subscribeOn(Schedulers.boundedElastic())
+                    .doOnTerminate(this::clearRefreshInFlight)
+                    .cache();
+        }
+        return refreshInFlight;
+    }
+
+    private synchronized void clearRefreshInFlight() {
+        refreshInFlight = null;
+    }
+
+    private Mono<HubSpotTokenResponse> requestTokenRefresh() {
         log.info("ATTEMPTING TO REFRESH ACCESS TOKEN...");
 
         String refreshToken = tokenStorageService.getRefreshToken()
@@ -91,16 +104,16 @@ public class HubSpotOAuthServiceImpl implements HubSpotOAuthService {
         return hubSpotOAuthWebClient.post()
                 .body(BodyInserters.fromFormData(formData))
                 .retrieve()
-                .onStatus(HttpStatusCode::isError, response ->
-                        response.bodyToMono(HubSpotErrorDTO.class)
-                                .<Throwable>flatMap(errorBody -> Mono.error(buildRefreshError(response, errorBody)))
-                                .switchIfEmpty(Mono.<Throwable>error(buildRefreshError(response)))
-                )
+                .onStatus(HttpStatusCode::isError, response -> HubSpotResponseErrors.from(response, "OAuth token request"))
 
                 .bodyToMono(HubSpotTokenResponse.class)
+                .switchIfEmpty(Mono.error(new HubSpotApiException("Empty OAuth response", HttpStatusCode.valueOf(502))))
+                .publishOn(Schedulers.boundedElastic())
                 .doOnSuccess(newToken -> {
                     log.info("ACCESS TOKEN REFRESHED SUCCESSFULLY.");
-                    newToken.setRefreshToken(refreshToken);
+                    if (newToken.getRefreshToken() == null) {
+                        newToken.setRefreshToken(refreshToken);
+                    }
                     tokenStorageService.saveToken(newToken);
                 })
                 .doOnError(error -> log.error("ERROR DURING TOKEN REFRESH: {}", error.getMessage()));
@@ -110,7 +123,7 @@ public class HubSpotOAuthServiceImpl implements HubSpotOAuthService {
         return Mono.defer(() -> {
             Optional<String> currentToken = tokenStorageService.getAccessToken();
             if (currentToken.isPresent()) {
-                log.debug("USING EXISTING ACCESS TOKEN FROM MEMORY.");
+                log.debug("USING EXISTING VALID ACCESS TOKEN.");
                 return Mono.just(currentToken.get());
             } else if (tokenStorageService.getRefreshToken().isPresent()) {
                 log.info("ACCESS TOKEN EXPIRED OR MISSING. TRYING TO REFRESH...");
@@ -121,26 +134,7 @@ public class HubSpotOAuthServiceImpl implements HubSpotOAuthService {
                 log.warn("NO ACCESS OR REFRESH TOKEN FOUND. AUTHORIZATION REQUIRED.");
                 return Mono.error(new HubSpotApiException("OAUTH AUTHORIZATION REQUIRED.", HttpStatusCode.valueOf(401)));
             }
-        });
+        }).subscribeOn(Schedulers.boundedElastic());
     }
 
-    private HubSpotApiException buildTokenError(ClientResponse response, HubSpotErrorDTO body) {
-        String message = String.format("FAILED TO OBTAIN ACCESS TOKEN: %d", response.statusCode().value());
-        return new HubSpotApiException(message, response.statusCode(), body);
-    }
-
-    private HubSpotApiException buildTokenError(ClientResponse response) {
-        String message = String.format("FAILED TO OBTAIN ACCESS TOKEN: %d (NO ERROR BODY)", response.statusCode().value());
-        return new HubSpotApiException(message, response.statusCode());
-    }
-
-    private HubSpotApiException buildRefreshError(ClientResponse response, HubSpotErrorDTO body) {
-        String message = String.format("FAILED TO REFRESH TOKEN: %d", response.statusCode().value());
-        return new HubSpotApiException(message, response.statusCode(), body);
-    }
-
-    private HubSpotApiException buildRefreshError(ClientResponse response) {
-        String message = String.format("FAILED TO REFRESH TOKEN: %d (NO ERROR BODY)", response.statusCode().value());
-        return new HubSpotApiException(message, response.statusCode());
-    }
 }

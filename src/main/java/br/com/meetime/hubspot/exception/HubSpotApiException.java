@@ -9,17 +9,20 @@ public class HubSpotApiException extends RuntimeException {
 
     private final HttpStatusCode statusCode;
     private final HubSpotErrorDTO errorBody;
+    private final String retryAfter;
 
     public HubSpotApiException(String message, HttpStatusCode statusCode) {
-        super(message);
-        this.statusCode = statusCode;
-        this.errorBody = null;
+        this(message, statusCode, null, null);
     }
 
     public HubSpotApiException(String message, HttpStatusCode statusCode, HubSpotErrorDTO errorBody) {
+        this(message, statusCode, errorBody, null);
+    }
+
+    public HubSpotApiException(String message, HttpStatusCode statusCode, HubSpotErrorDTO errorBody, String retryAfter) {
         super(message);
         this.statusCode = statusCode;
         this.errorBody = errorBody;
+        this.retryAfter = retryAfter;
     }
-
 }

@@ -1,79 +1,53 @@
 package br.com.meetime.hubspot.service.impl;
 
+import br.com.meetime.hubspot.domain.TokenSnapshot;
 import br.com.meetime.hubspot.domain.response.HubSpotTokenResponse;
+import br.com.meetime.hubspot.repository.TokenRepository;
 import br.com.meetime.hubspot.service.TokenStorageService;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-
+import java.time.Clock;
 import java.time.Instant;
 import java.util.Optional;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 @Service
 public class TokenStorageServiceImpl implements TokenStorageService {
+    private final TokenRepository repository;
+    private final Clock clock;
 
-    private static final Logger log = LoggerFactory.getLogger(TokenStorageServiceImpl.class);
-
-    private HubSpotTokenResponse currentToken;
-    private Instant tokenExpiryTime;
-    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+    public TokenStorageServiceImpl(TokenRepository repository, Clock clock) {
+        this.repository = repository;
+        this.clock = clock;
+    }
 
     @Override
-    public void saveToken(HubSpotTokenResponse tokenResponse) {
-        lock.writeLock().lock();
-        try {
-            this.currentToken = tokenResponse;
-            this.tokenExpiryTime = Instant.now().plusSeconds(tokenResponse.getExpiresIn() - 60);
-            log.info("ACCESS TOKEN STORED. EXPIRATION TIME SET TO: {}", tokenExpiryTime);
-        } finally {
-            lock.writeLock().unlock();
+    public synchronized void saveToken(HubSpotTokenResponse token) {
+        if (token == null || token.getAccessToken() == null || token.getAccessToken().isBlank()
+                || token.getExpiresIn() <= 0) {
+            throw new IllegalArgumentException("Invalid OAuth token response");
         }
+        String refresh = token.getRefreshToken();
+        if (refresh == null || refresh.isBlank()) {
+            refresh = repository.find().map(TokenSnapshot::refreshToken).orElse(null);
+        }
+        long margin = Math.min(60, token.getExpiresIn() / 10);
+        repository.save(new TokenSnapshot(token.getAccessToken(), refresh,
+                Instant.now(clock).plusSeconds(token.getExpiresIn() - margin)));
     }
 
     @Override
     public Optional<String> getAccessToken() {
-        lock.readLock().lock();
-        try {
-            if (currentToken != null && Instant.now().isBefore(tokenExpiryTime)) {
-                log.debug("VALID ACCESS TOKEN FOUND IN MEMORY.");
-                return Optional.of(currentToken.getAccessToken());
-            }
-
-            if (currentToken != null) {
-                log.warn("EXPIRED OR INVALID ACCESS TOKEN DETECTED. CLEARING FROM MEMORY.");
-                clearToken();
-            } else {
-                log.debug("NO ACCESS TOKEN FOUND IN MEMORY.");
-            }
-
-            return Optional.empty();
-        } finally {
-            lock.readLock().unlock();
-        }
+        return repository.find().filter(token -> Instant.now(clock).isBefore(token.expiresAt()))
+                .map(TokenSnapshot::accessToken);
     }
 
     @Override
     public Optional<String> getRefreshToken() {
-        lock.readLock().lock();
-        try {
-            return Optional.ofNullable(currentToken)
-                    .map(HubSpotTokenResponse::getRefreshToken);
-        } finally {
-            lock.readLock().unlock();
-        }
+        return repository.find().map(TokenSnapshot::refreshToken);
     }
 
     @Override
-    public void clearToken() {
-        lock.writeLock().lock();
-        try {
-            currentToken = null;
-            tokenExpiryTime = null;
-            log.info("ACCESS TOKEN CLEARED FROM MEMORY.");
-        } finally {
-            lock.writeLock().unlock();
-        }
+    public synchronized void clearToken() {
+        repository.delete();
     }
 
     @Override

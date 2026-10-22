@@ -2,11 +2,12 @@ package br.com.meetime.hubspot.service.impl;
 
 import br.com.meetime.hubspot.domain.request.ContactCreateRequest;
 import br.com.meetime.hubspot.domain.response.ContactResponse;
-import br.com.meetime.hubspot.domain.dto.HubSpotErrorDTO;
+import br.com.meetime.hubspot.client.HubSpotResponseErrors;
 import br.com.meetime.hubspot.exception.HubSpotApiException;
 import br.com.meetime.hubspot.service.ContactService;
 import br.com.meetime.hubspot.service.HubSpotOAuthService;
-import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
+import io.github.resilience4j.ratelimiter.RateLimiter;
+import io.github.resilience4j.ratelimiter.RequestNotPermitted;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -14,7 +15,6 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
-import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
@@ -24,21 +24,25 @@ public class ContactServiceImpl implements ContactService {
     private static final Logger log = LoggerFactory.getLogger(ContactServiceImpl.class);
     private static final String CONTACTS_API_PATH = "/crm/v3/objects/contacts";
 
+    private final RateLimiter rateLimiter;
     private final WebClient hubSpotWebClient;
     private final HubSpotOAuthService hubSpotOAuthService;
 
     public ContactServiceImpl(@Qualifier("hubSpotWebClient") WebClient hubSpotWebClient,
-                              HubSpotOAuthService hubSpotOAuthService) {
+                              HubSpotOAuthService hubSpotOAuthService, RateLimiter rateLimiter) {
+        this.rateLimiter = rateLimiter;
         this.hubSpotWebClient = hubSpotWebClient;
         this.hubSpotOAuthService = hubSpotOAuthService;
     }
 
-    @RateLimiter(name = "hubspotApi")
     public Mono<ContactResponse> createContact(ContactCreateRequest contactRequest) {
-        log.info("ATTEMPTING TO CREATE CONTACT IN HUBSPOT: {}", contactRequest.getProperties().getEmail());
+        log.info("CONTACT CREATION REQUEST");
 
         return hubSpotOAuthService.getValidAccessToken()
                 .flatMap(accessToken -> {
+                    if (!rateLimiter.acquirePermission()) {
+                        return Mono.error(RequestNotPermitted.createRequestNotPermitted(rateLimiter));
+                    }
                     log.debug("USING ACCESS TOKEN TO CREATE CONTACT");
 
                     return hubSpotWebClient.post()
@@ -47,12 +51,9 @@ public class ContactServiceImpl implements ContactService {
                             .contentType(MediaType.APPLICATION_JSON)
                             .bodyValue(contactRequest)
                             .retrieve()
-                            .onStatus(HttpStatusCode::isError, clientResponse ->
-                                    clientResponse.bodyToMono(HubSpotErrorDTO.class)
-                                            .flatMap(errorBody -> buildHubSpotError(clientResponse, errorBody))
-                                            .switchIfEmpty(Mono.error(buildEmptyError(clientResponse)))
-                            )
+                            .onStatus(HttpStatusCode::isError, response -> HubSpotResponseErrors.from(response, "Contact creation"))
                             .bodyToMono(ContactResponse.class)
+                            .switchIfEmpty(Mono.error(new HubSpotApiException("Empty contact response", org.springframework.http.HttpStatus.BAD_GATEWAY)))
                             .doOnSuccess(response -> {
                                 if (response != null) {
                                     log.info("CONTACT SUCCESSFULLY CREATED IN HUBSPOT. ID: {}", response.getId());
@@ -79,17 +80,4 @@ public class ContactServiceImpl implements ContactService {
                 });
     }
 
-    private Mono<? extends Throwable> buildHubSpotError(ClientResponse response, HubSpotErrorDTO errorBody) {
-        HttpStatusCode statusCode = response.statusCode();
-        String errorMsg = String.format("FAILED TO CREATE CONTACT: %d", statusCode.value());
-        log.error("{} - BODY: {}", errorMsg, errorBody);
-        return Mono.just(new HubSpotApiException(errorMsg, statusCode, errorBody));
-    }
-
-    private Throwable buildEmptyError(ClientResponse response) {
-        HttpStatusCode statusCode = response.statusCode();
-        String errorMsg = String.format("FAILED TO CREATE CONTACT: %d (NO ERROR BODY)", statusCode.value());
-        log.error(errorMsg);
-        return new HubSpotApiException(errorMsg, statusCode);
-    }
 }

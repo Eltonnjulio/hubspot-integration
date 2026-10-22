@@ -27,7 +27,7 @@ public class ContactController {
 
     @PostMapping
     public Mono<ResponseEntity<ContactResponse>> createContact(@Valid @RequestBody ContactCreateRequest contactRequest) {
-        log.info("REQUEST RECEIVED TO CREATE CONTACT: {}", contactRequest.getProperties().getEmail());
+        log.info("CONTACT CREATION REQUEST");
         return contactService.createContact(contactRequest)
                 .map(createdContact -> ResponseEntity.status(HttpStatus.CREATED).body(createdContact));
 

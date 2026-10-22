@@ -1,7 +1,7 @@
 package br.com.meetime.hubspot.service.impl;
 
 import br.com.meetime.hubspot.domain.response.HubSpotTokenResponse;
-import br.com.meetime.hubspot.service.TokenStorageService; // Ensure this import is correct
+import br.com.meetime.hubspot.service.TokenStorageService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -13,11 +13,11 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class TokenStorageServiceImplTest {
 
-    private TokenStorageService tokenStorageService; // Use interface type
+    private TokenStorageService tokenStorageService;
 
     @BeforeEach
     void setUp() {
-        tokenStorageService = new TokenStorageServiceImpl();
+        tokenStorageService = new TokenStorageServiceImpl(new br.com.meetime.hubspot.support.InMemoryTokenRepository(), java.time.Clock.systemUTC());
     }
 
     private HubSpotTokenResponse createTokenResponse(String accessToken, String refreshToken, long expiresIn) {
@@ -97,6 +97,26 @@ class TokenStorageServiceImplTest {
         assertEquals("access2", accessToken.get());
         assertTrue(refreshToken.isPresent());
         assertEquals("refresh2", refreshToken.get());
+    }
+
+    @Test
+    void expiredTokenPreservesRefreshTokenWithoutBlocking() {
+        var clock = org.mockito.Mockito.mock(java.time.Clock.class);
+        Instant now = Instant.parse("2026-01-01T00:00:00Z");
+        org.mockito.Mockito.when(clock.instant()).thenReturn(now);
+        tokenStorageService = new TokenStorageServiceImpl(new br.com.meetime.hubspot.support.InMemoryTokenRepository(), clock);
+        tokenStorageService.saveToken(createTokenResponse("expired", "refresh", 1));
+        org.mockito.Mockito.when(clock.instant()).thenReturn(now.plusSeconds(2));
+        assertTrue(tokenStorageService.getAccessToken().isEmpty());
+        assertEquals("refresh", tokenStorageService.getRefreshToken().orElseThrow());
+    }
+
+    @Test
+    void storedTokenCannotBeChangedByCaller() {
+        var token = createTokenResponse("original", "refresh", 3600);
+        tokenStorageService.saveToken(token);
+        token.setAccessToken("changed");
+        assertEquals("original", tokenStorageService.getAccessToken().orElseThrow());
     }
 
 }

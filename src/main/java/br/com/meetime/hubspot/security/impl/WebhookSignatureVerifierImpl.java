@@ -3,86 +3,52 @@ package br.com.meetime.hubspot.security.impl;
 import br.com.meetime.hubspot.config.HubSpotConfig;
 import br.com.meetime.hubspot.exception.WebhookAuthenticationException;
 import br.com.meetime.hubspot.security.WebhookSignatureVerifier;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
-
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
-import java.security.InvalidKeyException;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
 import java.util.Base64;
 import java.util.Objects;
+import java.util.regex.Pattern;
 
 @Component
 public class WebhookSignatureVerifierImpl implements WebhookSignatureVerifier {
+    private static final Pattern ENCODED = Pattern.compile("%(?:3A|2F|3F|40|21|24|27|28|29|2A|2C|3B)", Pattern.CASE_INSENSITIVE);
+    private final byte[] secret;
 
-    private static final Logger log = LoggerFactory.getLogger(WebhookSignatureVerifierImpl.class);
-    private static final String HMAC_ALGORITHM = "HmacSHA256";
-
-    private final String clientSecret;
-
-    public WebhookSignatureVerifierImpl(HubSpotConfig hubSpotConfig) {
-        this.clientSecret = Objects.requireNonNull(
-                hubSpotConfig.getWebhook().getClientSecret(),
-                "HUBSPOT WEBHOOK CLIENT SECRET CANNOT BE NULL IN CONFIGURATION (HUBSPOTCONFIG)"
-        );
-        if (this.clientSecret.isBlank()) {
-            log.error("HUBSPOT WEBHOOK CLIENT SECRET IS BLANK IN CONFIGURATION!");
-            throw new IllegalArgumentException("HubSpot Webhook Client Secret cannot be blank");
-        }
+    public WebhookSignatureVerifierImpl(HubSpotConfig config) {
+        String value = Objects.requireNonNull(config.getWebhook().getClientSecret());
+        if (value.isBlank()) { throw new IllegalArgumentException("Webhook secret must not be blank"); }
+        secret = value.getBytes(StandardCharsets.UTF_8);
     }
 
     @Override
-    public void validateSignatureV3(String receivedSignature, String requestBody) {
-        if (receivedSignature == null || receivedSignature.isBlank()) {
-            log.warn("WEBHOOK REQUEST RECEIVED WITHOUT V3 SIGNATURE (X-HUBSPOT-SIGNATURE-V3).");
-            throw new WebhookAuthenticationException("Webhook V3 signature is missing.");
+    public void validateSignatureV3(String signature, String method, String uri, String body, String timestamp) {
+        if (signature == null || signature.isBlank() || timestamp == null || body == null) {
+            throw new WebhookAuthenticationException("Missing webhook signature data");
         }
-        if (requestBody == null) {
-            log.error("NULL REQUEST BODY RECEIVED FOR V3 SIGNATURE VALIDATION.");
-            throw new WebhookAuthenticationException("Request body cannot be null for V3 signature validation.");
-        }
-
-        String computedSignature = computeSignatureV3(requestBody);
-
-        if (!TimingSafeComparator.isEqual(computedSignature.getBytes(StandardCharsets.UTF_8),
-                receivedSignature.getBytes(StandardCharsets.UTF_8))) {
-            log.warn("INVALID WEBHOOK V3 SIGNATURE. EXPECTED (COMPUTED): [{}], RECEIVED: [{}]", computedSignature, receivedSignature);
-            throw new WebhookAuthenticationException("Invalid webhook V3 signature.");
-        }
-
-        log.debug("WEBHOOK V3 SIGNATURE VALIDATED SUCCESSFULLY.");
-    }
-
-    private String computeSignatureV3(String requestBody) {
         try {
-            String sourceString = this.clientSecret + requestBody;
-
-            Mac hmac = Mac.getInstance(HMAC_ALGORITHM);
-            SecretKeySpec secretKeySpec = new SecretKeySpec(this.clientSecret.getBytes(StandardCharsets.UTF_8), HMAC_ALGORITHM);
-            hmac.init(secretKeySpec);
-            byte[] hash = hmac.doFinal(sourceString.getBytes(StandardCharsets.UTF_8));
-
-            return Base64.getEncoder().encodeToString(hash);
-
-        } catch (NoSuchAlgorithmException e) {
-            log.error("HMACSHA256 ALGORITHM NOT FOUND IN JVM.", e);
-            throw new WebhookAuthenticationException("INTERNAL FAILURE CALCULATING SIGNATURE (ALGORITHM UNAVAILABLE).", e);
-        } catch (InvalidKeyException e) {
-            log.error("INVALID KEY FOR HMAC CALCULATION (CLIENT SECRET: '{}'). CHECK CONFIGURATION.", "****", e); // Mask secret
-            throw new WebhookAuthenticationException("INTERNAL FAILURE CALCULATING SIGNATURE (INVALID KEY).", e);
-        } catch (Exception e) {
-            log.error("UNEXPECTED ERROR DURING V3 SIGNATURE CALCULATION.", e);
-            throw new WebhookAuthenticationException("INTERNAL FAILURE CALCULATING SIGNATURE.", e);
-        }
-    }
-
-    private static class TimingSafeComparator {
-        public static boolean isEqual(byte[] a, byte[] b) {
-            return MessageDigest.isEqual(a, b);
+            long age = Instant.now().toEpochMilli() - Long.parseLong(timestamp);
+            if (age < -30_000 || age > 300_000) {
+                throw new WebhookAuthenticationException("Webhook timestamp outside allowed window");
+            }
+            String decodedUri = ENCODED.matcher(uri).replaceAll(match ->
+                    java.util.regex.Matcher.quoteReplacement(Character.toString(
+                            (char) Integer.parseInt(match.group().substring(1), 16))));
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(secret, "HmacSHA256"));
+            byte[] expected = mac.doFinal((method + decodedUri + body + timestamp).getBytes(StandardCharsets.UTF_8));
+            if (!MessageDigest.isEqual(expected, Base64.getDecoder().decode(signature))) {
+                throw new WebhookAuthenticationException("Invalid webhook signature");
+            }
+        } catch (WebhookAuthenticationException e) {
+            throw e;
+        } catch (IllegalArgumentException e) {
+            throw new WebhookAuthenticationException("Malformed webhook signature data", e);
+        } catch (java.security.GeneralSecurityException e) {
+            throw new IllegalStateException("Unable to calculate webhook signature", e);
         }
     }
 }

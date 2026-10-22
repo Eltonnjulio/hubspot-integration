@@ -12,21 +12,19 @@ A aplicação implementa os seguintes fluxos:
 
 *   **Java 17**
 *   **Spring Boot 3.2.x**
-    *   Spring Web (MVC)
-    *   Spring WebFlux (para WebClient)
+    *   Spring WebFlux (servidor e WebClient)
     *   Spring Security
     *   Spring Validation
     *   Spring Actuator
 *   **Maven** (Gerenciador de Dependências)
 *   **Project Lombok** (Redução de boilerplate)
 *   **Resilience4j** (Implementação de Rate Limiter)
-*   **Apache Commons Codec** (Para HmacSHA256 na validação do webhook)
 *   **WebClient** (Cliente HTTP reativo para chamadas à API HubSpot)
 
 ## Pré-requisitos
 
-*   **Java Development Kit (JDK) 17 ou superior:** [Instruções de Instalação](https://adoptium.net/)
-*   **Apache Maven 3.6 ou superior:** [Instruções de Instalação](https://maven.apache.org/install.html)
+*   **Java Development Kit (JDK) 17:** [Instruções de Instalação](https://adoptium.net/)
+*   **Maven 3.9.9:** fornecido pelo Maven Wrapper; o primeiro uso requer acesso à Internet.
 *   **Conta de Desenvolvedor HubSpot:** [Criar conta](https://developers.hubspot.com/signup)
 *   **Aplicativo HubSpot Criado:**
     *   Vá para sua conta de desenvolvedor HubSpot > Apps.
@@ -50,22 +48,23 @@ A aplicação implementa os seguintes fluxos:
     cd hubspot-integration
     ```
 
-2.  **Configure as credenciais do HubSpot:**
-    *   Renomeie (ou copie) o arquivo `src/main/resources/application.yml.example` para `src/main/resources/application.yml`.
-    *   Abra o arquivo `src/main/resources/application.yml` e preencha os seguintes valores com as informações do seu aplicativo HubSpot:
-        *   `hubspot.oauth.client-id`
-        *   `hubspot.oauth.client-secret`
-        *   `hubspot.oauth.redirect-uri` (Deve ser EXATAMENTE igual ao configurado no HubSpot)
-        *   `hubspot.oauth.scopes` (Verifique se os escopos correspondem aos configurados no HubSpot)
-        *   `hubspot.webhook.client-secret` (Normalmente o mesmo `client-secret` do OAuth para assinatura v3)
+2. **Configure o ambiente:**
 
-    **IMPORTANTE:** Nunca comite o arquivo `application.yml` com suas credenciais reais em um repositório público. Use variáveis de ambiente ou um gerenciador de segredos em produção.
+    Copie `.env.example` para `.env` e substitua os valores. O Spring não carrega esse ficheiro automaticamente; exporte as variáveis no terminal antes de iniciar:
+
+    ```bash
+    set -a
+    source .env
+    set +a
+    ```
+
+    `HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET`, `INTEGRATION_USERNAME`, `INTEGRATION_PASSWORD` e `TOKEN_ENCRYPTION_KEY` são obrigatórios. Gere a chave com `openssl rand -base64 32` e coloque o resultado em `TOKEN_ENCRYPTION_KEY`. O redirect URI deve corresponder ao configurado no HubSpot. Use HTTPS em produção. Se o segredo anterior era real, substitua-o no HubSpot: removê-lo do ficheiro não o remove do histórico Git.
 
 ## Execução
 
 1.  **Compile e execute a aplicação usando Maven:**
     ```bash
-    mvn spring-boot:run
+    ./mvnw spring-boot:run
     ```
     A aplicação estará disponível em `http://localhost:8080`.
 
@@ -87,7 +86,7 @@ A aplicação implementa os seguintes fluxos:
 2.  **Callback OAuth:**
     *   **Método:** `GET`
     *   **Path:** `/oauth/callback`
-    *   **Descrição:** Endpoint chamado pelo HubSpot após o usuário autorizar o aplicativo. Ele recebe o código de autorização e o troca pelos tokens de acesso/refresh. O usuário é redirecionado para cá automaticamente pelo HubSpot. Retorna uma mensagem de sucesso ou erro.
+    *   **Descrição:** Endpoint chamado pelo HubSpot após o usuário autorizar o aplicativo. Ele recebe o código e o `state`, valida a sessão e troca o código pelos tokens de acesso/refresh. O usuário é redirecionado para cá automaticamente pelo HubSpot. Retorna uma mensagem de sucesso ou erro.
 
 3.  **Criar Contato:**
     *   **Método:** `POST`
@@ -108,16 +107,15 @@ A aplicação implementa os seguintes fluxos:
     *   **Resposta de Sucesso (201 Created):**
         ```json
         {
-          "id": "123456789", // ID do contato no HubSpot
+          "id": "123456789",
           "properties": {
-            // ... propriedades retornadas pelo HubSpot ...
           },
           "createdAt": "...",
           "updatedAt": "...",
           "archived": false
         }
         ```
-    *   **Descrição:** Cria um novo contato no HubSpot. Requer que o fluxo OAuth tenha sido completado com sucesso anteriormente (o token de acesso é armazenado em memória).
+    *   **Descrição:** Cria um novo contato no HubSpot. Requer que o fluxo OAuth tenha sido completado com sucesso anteriormente (o token de acesso é armazenado cifrado na base de dados).
 
 4.  **Receber Webhook de Criação de Contato:**
     *   **Método:** `POST`
@@ -148,25 +146,46 @@ A aplicação implementa os seguintes fluxos:
     *   **Resposta de Erro (Assinatura inválida):** `401 Unauthorized`
     *   **Descrição:** Endpoint que recebe notificações do HubSpot quando um contato é criado. Valida a assinatura `X-HubSpot-Signature-V3` antes de processar o evento. A lógica de processamento atual apenas loga o evento recebido.
 
-## Decisões Técnicas e Melhorias Futuras
+## Decisões de arquitetura
 
-*   **Framework:** Spring Boot foi escolhido por sua robustez, ecossistema maduro e facilidade para criar APIs REST e gerenciar dependências.
-*   **Cliente HTTP:** WebClient (Spring WebFlux) foi usado para chamadas assíncronas e não bloqueantes à API do HubSpot, melhorando a performance e resiliência da aplicação.
-*   **Armazenamento de Token:** Atualmente, os tokens OAuth são armazenados **em memória** (`TokenStorageService`). Isso é **inadequado para produção** pois os tokens se perdem ao reiniciar a aplicação e não suporta múltiplos usuários/instâncias.
-    *   **Melhoria:** Implementar persistência segura dos tokens em um banco de dados (SQL ou NoSQL) ou um cofre de segredos (como HashiCorp Vault, AWS Secrets Manager, etc.).
-*   **Refresh Token:** A lógica para usar o *refresh token* para obter novos *access tokens* quando o atual expirar está implementada (`HubSpotOAuthService.refreshToken` e `getValidAccessToken`), tornando a integração mais duradoura sem exigir reautenticação constante do usuário.
-*   **Rate Limiting:** Resilience4j foi utilizado para implementar um Rate Limiter (`@RateLimiter(name = "hubspotApi")`) no `ContactService`, garantindo que a aplicação respeite os limites de taxa da API HubSpot e evitando erros `429 Too Many Requests`. A configuração está em `application.yml`.
-*   **Validação de Webhook:** A validação da assinatura v3 (`X-HubSpot-Signature-V3`) foi implementada usando HmacSHA256 conforme a documentação do HubSpot, garantindo que apenas requisições legítimas sejam processadas.
-*   **Segurança:** Spring Security foi adicionado para configuração básica, principalmente para desabilitar CSRF no endpoint do webhook. Uma configuração mais granular pode ser necessária em produção. Credenciais **NÃO** devem ser commitadas.
-*   **Tratamento de Erros:** Um `GlobalExceptionHandler` foi implementado para capturar exceções (erros da API HubSpot, validação, rate limit, autenticação de webhook) e retornar respostas de erro padronizadas em formato JSON.
-*   **Testes:** O projeto inclui as dependências de teste, mas os testes unitários e de integração **não foram implementados** como parte deste código inicial.
-    *   **Melhoria:** Adicionar testes unitários (Mockito) para serviços e controladores, e testes de integração (Spring Boot Test, Testcontainers) para validar os fluxos completos, incluindo a interação com a API (usando mocks ou um ambiente de teste).
-*   **Processamento de Webhook:** A lógica atual no `WebhookService` apenas loga o evento.
-    *   **Melhoria:** Implementar a lógica de negócio real necessária ao receber um evento de criação de contato. Considerar o uso de filas de mensagens (RabbitMQ, Kafka, SQS) para processamento assíncrono e desacoplado dos webhooks, aumentando a resiliência.
-*   **Escalabilidade:** A solução atual com armazenamento em memória não escala horizontalmente. A persistência de tokens e, potencialmente, o uso de sessões distribuídas ou estratégias stateless seriam necessários para múltiplas instâncias.
+As decisões de persistência, concorrência, entrega e escalabilidade estão descritas em [docs/architecture.md](docs/architecture.md).
 
-```markdown
+## Segurança e operação
 
+`GET /oauth/authorize`, `/contacts/**`, `/csrf` e os endpoints de gestão, exceto `/actuator/health`, exigem HTTP Basic com as credenciais de integração. O callback OAuth exige a mesma sessão que iniciou a autorização e um `state` de uso único, válido por dez minutos.
+
+Os pedidos que alteram estado exigem CSRF, exceto o webhook autenticado por assinatura. Para criar contactos, obtenha um token e preserve o cookie de sessão:
+
+```bash
+curl -u "$INTEGRATION_USERNAME:$INTEGRATION_PASSWORD" -c cookies.txt http://localhost:8080/csrf
+curl -u "$INTEGRATION_USERNAME:$INTEGRATION_PASSWORD" -b cookies.txt \
+  -H 'X-CSRF-TOKEN: TOKEN_DEVOLVIDO_PELO_ENDPOINT' \
+  -H 'Content-Type: application/json' \
+  -d '{"properties":{"email":"contact@example.com"}}' http://localhost:8080/contacts
 ```
 
-Com isso, temos a estrutura completa do projeto, todas as classes Java necessárias para os 4 endpoints, configurações, DTOs, tratamento de erros, validação de webhook e um `README.md` detalhado. Lembre-se de configurar corretamente o `application.yml` com suas credenciais e ajustar a URL do webhook no HubSpot (usando `ngrok` ou similar para testes locais).
+O webhook valida a assinatura v3 e rejeita timestamps com mais de cinco minutos ou mais de trinta segundos no futuro. Atrás de proxy, preserve a URI pública usada na assinatura; só aceite cabeçalhos encaminhados de proxies de confiança. O corpo é limitado a 256 KB.
+
+O rate limiter é local à instância, não bloqueia o event loop e permite, por padrão, nove chamadas de criação por segundo. Não há repetição automática de criação de contactos, para evitar duplicações após respostas perdidas. Falhas HTTP da HubSpot, incluindo 429, são propagadas com corpo sanitizado. Timeouts de conexão e resposta são configuráveis em `http.client`.
+
+Os tokens são persistidos com AES-256-GCM e nonces aleatórios; a chave de 32 bytes vem de `TOKEN_ENCRYPTION_KEY`, nunca da base de dados. Preserve a mesma chave entre reinícios e guarde-a separada dos backups. Perder a chave exige nova autorização. A troca de chave exige uma migração dos dados cifrados ou revogação e nova autorização; alterar apenas a variável impede a leitura dos tokens existentes.
+
+O ambiente local usa H2 em ficheiro (`./data/hubspot`). As migrações Flyway são aplicadas no arranque. Para PostgreSQL, configure `DATABASE_URL=jdbc:postgresql://host:5432/hubspot`, `DATABASE_USERNAME` e `DATABASE_PASSWORD`; em produção, configure TLS e um volume/backup adequados. Os testes de persistência e concorrência são executados também em PostgreSQL na CI.
+
+A deduplicação dos webhooks usa uma chave única persistida, incluindo conta, evento, objeto e data original; `attemptNumber` não faz parte da identidade. A reserva e o handler executam na mesma transação: falhas fazem rollback e permitem nova tentativa. Os registos expiram após sete dias e são removidos periodicamente. O corpo inteiro não é guardado e só é confirmado depois de o handler concluir; não existe fila assíncrona.
+
+A integração suporta uma única conta HubSpot e uma instância da aplicação. Os tokens sobrevivem a reinícios; as sessões OAuth ainda são locais e uma autorização em curso deve ser reiniciada após um restart. Múltiplas réplicas exigem sessões partilhadas, coordenação distribuída do refresh e rate limiter partilhado. Chamadas JDBC são executadas fora do event loop, em `boundedElastic`.
+
+O handler `ContactCreationHandler` regista a receção. Operações externas futuras precisam de idempotência própria ou outbox: a transação local não desfaz efeitos num serviço externo nem garante processamento exatamente uma vez.
+
+Cada resposta inclui `X-Request-ID`, também registado nos logs. O Actuator disponibiliza métricas HTTP, JVM e do cliente HTTP em `/actuator/metrics`, mediante autenticação.
+
+## Validação
+
+```bash
+./mvnw --batch-mode verify
+```
+
+Execute com JDK 17. A integração contínua executa o mesmo comando. Os testes usam o mock maker por subclasses, sem exigir que o Mockito anexe um agente à JVM.
+
+Para executar os testes de armazenamento contra um PostgreSQL de testes, forneça `TEST_DATABASE_URL`, `TEST_DATABASE_USERNAME` e `TEST_DATABASE_PASSWORD` e execute `./mvnw -Dtest=DurableStorageTest test`. Cada teste cria o seu próprio schema; use uma base descartável, com permissão para criar schemas. As decisões e limitações estão em `docs/architecture.md`.
