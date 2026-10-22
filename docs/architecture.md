@@ -20,7 +20,7 @@ O handler atual regista a receção. Uma operação externa não participa da tr
 
 ## Concorrência e falhas
 
-O refresh partilha a chamada em curso dentro de uma instância, preserva refresh tokens rodados e permite nova tentativa após falha. Tokens expirados não apagam o refresh token. O rate limiter é não bloqueante, aplicado por subscrição e local ao processo. Criação de contactos não tem retry automático, pois um timeout pode acontecer após a criação no destino. Erros 429 preservam Retry-After quando válido.
+O refresh partilha a chamada em curso dentro de uma instância, preserva refresh tokens rodados e permite nova tentativa após falha. Tokens expirados não apagam o refresh token. O rate limiter é não bloqueante, aplicado por subscrição e local ao processo. Respostas 429 explícitas têm até três retries reativos. Retry-After em segundos ou data HTTP tem precedência; na sua ausência usa-se backoff exponencial. Esperas superiores ao máximo configurado não são encurtadas: devolve-se o erro ao cliente. O orçamento inclui a tentativa inicial e até três novas chamadas, cada uma com espera máxima de 60 segundos e timeout HTTP próprio. Cada tentativa de contacto volta a obter token e permissão local. Timeouts, falhas de rede e outros erros não são repetidos, pois o contacto pode ter sido criado no destino. O erro final mantém status e Retry-After.
 
 ## Limites operacionais
 

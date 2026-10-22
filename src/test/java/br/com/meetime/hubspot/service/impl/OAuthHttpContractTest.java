@@ -42,7 +42,7 @@ class OAuthHttpContractTest {
             requested.tryEmitValue(true);
             return response.asMono();
         }).build();
-        var service = new HubSpotOAuthServiceImpl(client, config(), storage);
+        var service = new HubSpotOAuthServiceImpl(client, config(), storage, br.com.meetime.hubspot.support.RetryFixtures.disabled());
         var first = service.refreshToken();
         var second = service.refreshToken();
         StepVerifier.create(Mono.zip(first, second))
@@ -63,9 +63,35 @@ class OAuthHttpContractTest {
     void emptyErrorBodyStillPreservesHttpStatus() {
         var client = WebClient.builder().baseUrl("https://example.com/token")
                 .exchangeFunction(request -> Mono.just(ClientResponse.create(HttpStatus.TOO_MANY_REQUESTS).build())).build();
-        var service = new HubSpotOAuthServiceImpl(client, config(), new TokenStorageServiceImpl(new br.com.meetime.hubspot.support.InMemoryTokenRepository(), java.time.Clock.systemUTC()));
+        var service = new HubSpotOAuthServiceImpl(client, config(), new TokenStorageServiceImpl(new br.com.meetime.hubspot.support.InMemoryTokenRepository(), java.time.Clock.systemUTC()), br.com.meetime.hubspot.support.RetryFixtures.disabled());
         StepVerifier.create(service.exchangeCodeForToken("code"))
                 .expectErrorMatches(error -> error instanceof HubSpotApiException api
                         && api.getStatusCode().value() == 429).verify();
+    }
+    @Test
+    void expiredTokenIsAutomaticallyRefreshedBeforeUse() {
+        var clock = org.mockito.Mockito.mock(java.time.Clock.class);
+        var now = java.time.Instant.parse("2026-01-01T00:00:00Z");
+        org.mockito.Mockito.when(clock.instant()).thenReturn(now);
+        var storage = new TokenStorageServiceImpl(new br.com.meetime.hubspot.support.InMemoryTokenRepository(), clock);
+        var original = new HubSpotTokenResponse();
+        original.setAccessToken("expired-access");
+        original.setRefreshToken("refresh");
+        original.setExpiresIn(60);
+        storage.saveToken(original);
+        org.mockito.Mockito.when(clock.instant()).thenReturn(now.plusSeconds(61));
+        var requests = new AtomicInteger();
+        var client = WebClient.builder().baseUrl("https://example.com/token").exchangeFunction(request -> {
+            requests.incrementAndGet();
+            return Mono.just(ClientResponse.create(HttpStatus.OK)
+                    .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                    .body("{\"access_token\":\"renewed\",\"expires_in\":3600}").build());
+        }).build();
+        var service = new HubSpotOAuthServiceImpl(client, config(), storage,
+                br.com.meetime.hubspot.support.RetryFixtures.enabled());
+        StepVerifier.create(service.getValidAccessToken()).expectNext("renewed").verifyComplete();
+        assertEquals("renewed", storage.getAccessToken().orElseThrow());
+        assertEquals("refresh", storage.getRefreshToken().orElseThrow());
+        assertEquals(1, requests.get());
     }
 }

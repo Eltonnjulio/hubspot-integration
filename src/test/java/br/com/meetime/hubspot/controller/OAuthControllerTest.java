@@ -49,4 +49,13 @@ class OAuthControllerTest {
                 .expectError(ResponseStatusException.class).verify();
         verifyNoInteractions(service);
     }
+    @Test
+    void mismatchedStateInExistingSessionNeverExchangesCode() {
+        var session = new MockWebSession();
+        session.getAttributes().put("oauthState", "expected");
+        session.getAttributes().put("oauthStateExpiry", Instant.now().plusSeconds(60));
+        StepVerifier.create(controller.handleCallback("code", "attacker", session))
+                .expectError(ResponseStatusException.class).verify();
+        verifyNoInteractions(service);
+    }
 }

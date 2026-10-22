@@ -166,7 +166,7 @@ curl -u "$INTEGRATION_USERNAME:$INTEGRATION_PASSWORD" -b cookies.txt \
 
 O webhook valida a assinatura v3 e rejeita timestamps com mais de cinco minutos ou mais de trinta segundos no futuro. Atrás de proxy, preserve a URI pública usada na assinatura; só aceite cabeçalhos encaminhados de proxies de confiança. O corpo é limitado a 256 KB.
 
-O rate limiter é local à instância, não bloqueia o event loop e permite, por padrão, nove chamadas de criação por segundo. Não há repetição automática de criação de contactos, para evitar duplicações após respostas perdidas. Falhas HTTP da HubSpot, incluindo 429, são propagadas com corpo sanitizado. Timeouts de conexão e resposta são configuráveis em `http.client`.
+O rate limiter é local à instância, não bloqueia o event loop e permite, por padrão, nove chamadas de criação por segundo. Respostas 429 da HubSpot são repetidas automaticamente até três vezes, tanto na criação de contactos como no OAuth. A espera usa `Retry-After` (segundos ou data HTTP); sem valor válido, aplica backoff de 1, 2 e 4 segundos. O limite por espera é de 60 segundos: uma indicação superior é devolvida ao cliente, sem repetir antes do prazo. Estes limites são configuráveis em `hubspot.retry`. Cada nova tentativa de contacto verifica novamente o token e o rate limiter local. Timeouts, erros de rede, outros códigos HTTP e recusas do limitador local não são repetidos. Ao esgotar as tentativas, preserva-se o 429 e o `Retry-After` num erro sanitizado. Timeouts de conexão e resposta são configuráveis em `http.client`.
 
 Os tokens são persistidos com AES-256-GCM e nonces aleatórios; a chave de 32 bytes vem de `TOKEN_ENCRYPTION_KEY`, nunca da base de dados. Preserve a mesma chave entre reinícios e guarde-a separada dos backups. Perder a chave exige nova autorização. A troca de chave exige uma migração dos dados cifrados ou revogação e nova autorização; alterar apenas a variável impede a leitura dos tokens existentes.
 
@@ -189,3 +189,16 @@ Cada resposta inclui `X-Request-ID`, também registado nos logs. O Actuator disp
 Execute com JDK 17. A integração contínua executa o mesmo comando. Os testes usam o mock maker por subclasses, sem exigir que o Mockito anexe um agente à JVM.
 
 Para executar os testes de armazenamento contra um PostgreSQL de testes, forneça `TEST_DATABASE_URL`, `TEST_DATABASE_USERNAME` e `TEST_DATABASE_PASSWORD` e execute `./mvnw -Dtest=DurableStorageTest test`. Cada teste cria o seu próprio schema; use uma base descartável, com permissão para criar schemas. As decisões e limitações estão em `docs/architecture.md`.
+
+## Critérios do desafio e evidências
+
+| Critério | Comportamento | Testes |
+| --- | --- | --- |
+| OAuth `state` | Vinculado à sessão, expira em dez minutos e é consumido uma vez | `OAuthControllerTest`, `ApiSecurityTest` |
+| Webhook v3 | HMAC com método, URI, corpo e timestamp; rejeição de pedidos antigos | `WebhookSignatureVerifierTest`, `ApiSecurityTest` |
+| Rate limit | Retry reativo limitado de 429 com `Retry-After`, sem espera bloqueante | `HubSpotRetryTest`, `ContactServiceImplTest`, `HubSpotOAuthServiceImplTest` |
+| Expiração do token | Renovação automática antes do pedido, preservando refresh token e partilhando a renovação concorrente | `OAuthHttpContractTest`, `TokenStorageServiceImplTest` |
+
+A renovação acontece quando um pedido precisa de um token: considera a margem de expiração e obtém um novo access token sem intervenção do utilizador. Não é necessário renovar tokens enquanto a integração está inativa. Se o refresh token for revogado, será necessária nova autorização.
+
+Referências: [OAuth na HubSpot](https://developers.hubspot.com/docs/guides/apps/authentication/working-with-oauth), [validação de pedidos](https://developers.hubspot.com/docs/guides/apps/authentication/validating-requests), [gestão de tokens e rate limits](https://developers.hubspot.com/blog/oauth-token-management-hubspot-integrations).

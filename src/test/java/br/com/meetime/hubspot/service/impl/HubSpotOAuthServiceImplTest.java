@@ -30,7 +30,7 @@ class HubSpotOAuthServiceImplTest {
         oauth.setScopes("scope1 scope2");
         config.setOauth(oauth);
         return new HubSpotOAuthServiceImpl(WebClient.builder().baseUrl("https://example.com/token")
-                .clientConnector(connector).build(), config, storage);
+                .clientConnector(connector).build(), config, storage, br.com.meetime.hubspot.support.RetryFixtures.disabled());
     }
 
     private MockClientHttpResponse tokenResponse() {
@@ -104,5 +104,30 @@ class HubSpotOAuthServiceImplTest {
                 .expectErrorMatches(error -> error instanceof HubSpotApiException api
                         && api.getStatusCode().value() == 401).verify();
         verify(storage, never()).saveToken(any());
+    }
+    @Test
+    void tokenExchangeRetries429AndPersistsOnlySuccessfulResponse() {
+        var requests = new java.util.concurrent.atomic.AtomicInteger();
+        var connector = new StubHttpConnector(request -> {
+            if (requests.incrementAndGet() == 1) {
+                var limited = new MockClientHttpResponse(HttpStatus.TOO_MANY_REQUESTS);
+                limited.getHeaders().set("Retry-After", "0");
+                return limited;
+            }
+            return tokenResponse();
+        });
+        var config = new HubSpotConfig();
+        var oauth = new HubSpotConfig.OAuthConfig();
+        oauth.setClientId("client");
+        oauth.setClientSecret("secret");
+        oauth.setRedirectUri("https://example.com/callback");
+        config.setOauth(oauth);
+        var service = new HubSpotOAuthServiceImpl(WebClient.builder().baseUrl("https://example.com/token")
+                .clientConnector(connector).build(), config, storage,
+                br.com.meetime.hubspot.support.RetryFixtures.enabled());
+        StepVerifier.create(service.exchangeCodeForToken("code"))
+                .expectNextMatches(token -> token.getAccessToken().equals("new-access")).verifyComplete();
+        assertEquals(2, requests.get());
+        verify(storage, times(1)).saveToken(any(HubSpotTokenResponse.class));
     }
 }

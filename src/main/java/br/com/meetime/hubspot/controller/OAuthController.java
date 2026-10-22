@@ -36,7 +36,7 @@ public class OAuthController {
             @RequestParam("state") String state, WebSession session) {
         String expected = (String) session.getAttributes().remove("oauthState");
         Instant expiry = (Instant) session.getAttributes().remove("oauthStateExpiry");
-        if (expected == null || expiry == null || Instant.now().isAfter(expiry)
+        if (expected == null || expiry == null || !Instant.now().isBefore(expiry)
                 || !MessageDigest.isEqual(expected.getBytes(StandardCharsets.UTF_8), state.getBytes(StandardCharsets.UTF_8))) {
             return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid or expired OAuth state"));
         }

@@ -23,6 +23,10 @@ logging:
     root: INFO
 
 hubspot:
+  retry:
+    max-retries: 3
+    initial-delay: 1s
+    max-delay: 60s
   api:
     base-url: https://api.hubapi.com
 

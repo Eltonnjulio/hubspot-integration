@@ -37,7 +37,7 @@ class ContactServiceImplTest {
     private ContactServiceImpl service(StubHttpConnector connector, RateLimiter limiter) {
         when(oauth.getValidAccessToken()).thenReturn(Mono.just("access-token"));
         return new ContactServiceImpl(WebClient.builder().baseUrl("https://example.com")
-                .clientConnector(connector).build(), oauth, limiter);
+                .clientConnector(connector).build(), oauth, limiter, br.com.meetime.hubspot.support.RetryFixtures.disabled());
     }
 
     @Test
@@ -93,5 +93,34 @@ class ContactServiceImplTest {
         StepVerifier.create(service(connector, limiter()).createContact(contact()))
                 .expectErrorMatches(error -> error instanceof HubSpotApiException api
                         && api.getStatusCode().value() == 502).verify();
+    }
+    @Test
+    void recoversFromHubSpot429AndChecksTokenForEachAttempt() {
+        var attempts = new java.util.concurrent.atomic.AtomicInteger();
+        var connector = new StubHttpConnector(request -> {
+            if (attempts.incrementAndGet() == 1) {
+                var limited = new MockClientHttpResponse(HttpStatus.TOO_MANY_REQUESTS);
+                limited.getHeaders().set("Retry-After", "2");
+                return limited;
+            }
+            var response = new MockClientHttpResponse(HttpStatus.CREATED);
+            response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
+            response.setBody("{\"id\":\"recovered\"}");
+            assertEquals("Bearer refreshed", request.headers().getFirst("Authorization"));
+            return response;
+        });
+        when(oauth.getValidAccessToken()).thenReturn(Mono.just("initial"), Mono.just("refreshed"));
+        var permits = mock(RateLimiter.class);
+        when(permits.acquirePermission()).thenReturn(true);
+        var service = new ContactServiceImpl(WebClient.builder().baseUrl("https://example.com")
+                .clientConnector(connector).build(), oauth, permits,
+                br.com.meetime.hubspot.support.RetryFixtures.enabled());
+        StepVerifier.withVirtualTime(() -> service.createContact(contact()))
+                .expectSubscription().expectNoEvent(Duration.ofSeconds(1))
+                .thenAwait(Duration.ofSeconds(1))
+                .expectNextMatches(response -> response.getId().equals("recovered")).verifyComplete();
+        assertEquals(2, connector.calls());
+        verify(oauth, times(2)).getValidAccessToken();
+        verify(permits, times(2)).acquirePermission();
     }
 }

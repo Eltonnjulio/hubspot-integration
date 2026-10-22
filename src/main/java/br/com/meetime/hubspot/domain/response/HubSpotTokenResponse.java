@@ -11,9 +11,11 @@ import lombok.NoArgsConstructor;
 public class HubSpotTokenResponse {
 
     @JsonProperty("access_token")
+    @lombok.ToString.Exclude
     private String accessToken;
 
     @JsonProperty("refresh_token")
+    @lombok.ToString.Exclude
     private String refreshToken;
 
     @JsonProperty("expires_in")

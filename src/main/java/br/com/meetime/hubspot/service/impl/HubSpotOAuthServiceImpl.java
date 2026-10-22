@@ -2,6 +2,7 @@ package br.com.meetime.hubspot.service.impl;
 
 import br.com.meetime.hubspot.config.HubSpotConfig;
 import br.com.meetime.hubspot.client.HubSpotResponseErrors;
+import br.com.meetime.hubspot.client.HubSpotRetry;
 import br.com.meetime.hubspot.domain.response.HubSpotTokenResponse;
 import br.com.meetime.hubspot.exception.HubSpotApiException;
 import br.com.meetime.hubspot.service.HubSpotOAuthService;
@@ -26,13 +27,15 @@ public class HubSpotOAuthServiceImpl implements HubSpotOAuthService {
 
     private static final Logger log = LoggerFactory.getLogger(HubSpotOAuthServiceImpl.class);
 
+    private final HubSpotRetry retry;
     private final WebClient hubSpotOAuthWebClient;
     private final HubSpotConfig hubSpotConfig;
     private final TokenStorageService tokenStorageService;
 
     public HubSpotOAuthServiceImpl(@Qualifier("hubSpotOAuthWebClient") WebClient hubSpotOAuthWebClient,
                                    HubSpotConfig hubSpotConfig,
-                                   TokenStorageService tokenStorageService) {
+                                   TokenStorageService tokenStorageService, HubSpotRetry retry) {
+        this.retry = retry;
         this.hubSpotOAuthWebClient = hubSpotOAuthWebClient;
         this.hubSpotConfig = hubSpotConfig;
         this.tokenStorageService = tokenStorageService;
@@ -68,6 +71,7 @@ public class HubSpotOAuthServiceImpl implements HubSpotOAuthService {
 
                 .bodyToMono(HubSpotTokenResponse.class)
                 .switchIfEmpty(Mono.error(new HubSpotApiException("Empty OAuth response", HttpStatusCode.valueOf(502))))
+                .retryWhen(retry.policy())
                 .publishOn(Schedulers.boundedElastic())
                 .doOnSuccess(token -> {
                     log.info("ACCESS TOKEN RECEIVED SUCCESSFULLY.");
@@ -108,6 +112,7 @@ public class HubSpotOAuthServiceImpl implements HubSpotOAuthService {
 
                 .bodyToMono(HubSpotTokenResponse.class)
                 .switchIfEmpty(Mono.error(new HubSpotApiException("Empty OAuth response", HttpStatusCode.valueOf(502))))
+                .retryWhen(retry.policy())
                 .publishOn(Schedulers.boundedElastic())
                 .doOnSuccess(newToken -> {
                     log.info("ACCESS TOKEN REFRESHED SUCCESSFULLY.");

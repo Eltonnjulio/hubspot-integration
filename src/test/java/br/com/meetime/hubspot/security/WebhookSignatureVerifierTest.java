@@ -43,4 +43,18 @@ class WebhookSignatureVerifierTest {
         assertThrows(WebhookAuthenticationException.class, () -> verifier().validateSignatureV3(signature, "POST", "https://example.com/webhook", "[]", timestamp));
         assertThrows(WebhookAuthenticationException.class, () -> verifier().validateSignatureV3(signature, "POST", "https://example.com/webhook", "[]", "invalid"));
     }
+    @Test
+    void rejectsMissingTimestampFutureTimestampAndChangedUri() throws Exception {
+        String timestamp = Long.toString(Instant.now().toEpochMilli());
+        String signature = sign("[]", timestamp);
+        assertThrows(WebhookAuthenticationException.class,
+                () -> verifier().validateSignatureV3(signature, "POST", "https://example.com/webhook", "[]", null));
+        assertThrows(WebhookAuthenticationException.class,
+                () -> verifier().validateSignatureV3(signature, "POST", "https://attacker.example/webhook", "[]", timestamp));
+        String future = Long.toString(Instant.now().plusSeconds(120).toEpochMilli());
+        assertThrows(WebhookAuthenticationException.class,
+                () -> verifier().validateSignatureV3(sign("[]", future), "POST", "https://example.com/webhook", "[]", future));
+        assertThrows(WebhookAuthenticationException.class,
+                () -> verifier().validateSignatureV3("not-base64", "POST", "https://example.com/webhook", "[]", timestamp));
+    }
 }
