@@ -4,29 +4,36 @@ server:
 spring:
   application:
     name: hubspot-integration
-  profiles:
-    active: dev
+  security:
+    user:
+      name: ${INTEGRATION_USERNAME}
+      password: ${INTEGRATION_PASSWORD}
+  datasource:
+    url: ${DATABASE_URL:jdbc:h2:file:./data/hubspot;MODE=PostgreSQL;DB_CLOSE_ON_EXIT=FALSE}
+    username: ${DATABASE_USERNAME:sa}
+    password: ${DATABASE_PASSWORD:}
+    hikari:
+      maximum-pool-size: 8
+      connection-timeout: 5000
+  codec:
+    max-in-memory-size: 256KB
 
 logging:
   level:
     root: INFO
-    br.com.meetime.hubspot: DEBUG
-    org.springframework.web.client.RestTemplate: DEBUG
-    org.apache.http: WARN
-    br.com.meetime.hubspot.controller: DEBUG
-      # ou TRACE para ver headers também
-      # br.com.meetime.hubspot.controller: TRACE
-      # Mantenha o nível do verifier em DEBUG ou WARN para ver os detalhes da falha lá também
-    br.com.meetime.hubspot.security.impl: DEBUG
 
 hubspot:
+  retry:
+    max-retries: 3
+    initial-delay: 1s
+    max-delay: 60s
   api:
     base-url: https://api.hubapi.com
 
   oauth:
-    client-id: 102084ab-3957-49ad-bd93-0ecf90659125
-    client-secret: 6761be26-f65c-448d-96b8-d115a1596d1b
-    redirect-uri: http://localhost:8080/oauth/callback
+    client-id: ${HUBSPOT_CLIENT_ID}
+    client-secret: ${HUBSPOT_CLIENT_SECRET}
+    redirect-uri: ${HUBSPOT_REDIRECT_URI:http://localhost:8080/oauth/callback}
     authorization-uri: https://app.hubspot.com/oauth/authorize
     token-uri: /oauth/v1/token
     scopes: "crm.objects.contacts.write crm.objects.contacts.read oauth"
@@ -40,9 +47,21 @@ resilience4j:
       hubspotApi:
         limitForPeriod: 9
         limitRefreshPeriod: 1s
-        timeoutDuration: 2s
+        timeoutDuration: 0s
 
 http:
   client:
-    connect-timeout: 5000
-    read-timeout: 5000
+    connect-timeout: 5s
+    read-timeout: 5s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when_authorized
+
+storage:
+  encryption-key: ${TOKEN_ENCRYPTION_KEY}
